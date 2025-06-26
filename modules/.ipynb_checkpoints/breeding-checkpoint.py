@@ -6,7 +6,10 @@ import matplotlib.patches as mpatches
 import seaborn as sns
 sns.set()
 
+
 def make_regional_info(imp_data, divide, genotype_path, pop):
+    
+    # add position data to genetic effet of each HB
     genotype_data = pd.read_csv(genotype_path)
     pos_array = genotype_data.pos.str.split("_", expand=True).values
     pos = np.array([[int(each_pos[0]), int(each_pos[0])] if each_pos[1] == None else [int(each_pos[0]), int(each_pos[1])] for each_pos in pos_array])
@@ -15,18 +18,24 @@ def make_regional_info(imp_data, divide, genotype_path, pop):
     
     genotype_data["start"] = pos[:, 0]
     genotype_data["end"] = pos[:, 1]
-
+    
+    # extract specific donor HBs
     tmp_imp_data = imp_data.loc[imp_data[pop] == "2"]
     tmp_genotype_data = genotype_data.loc[imp_data[pop] == "2"]
 
+    # calculate genetic effect for each 1Mbp
     for tmp_idx, trait_imp in enumerate(["GN_imps", "PN_imps", "GS_imps", "sum_zscore"]):
 
         regional_info_all = []
         chr_pos = []
         chr_start = [0]
+        
+        # calculate for each chromosome
         for each_chr in genotype_data.chr.unique():
             chr_SNP_imps = tmp_imp_data[tmp_imp_data["chr"] == each_chr]
             chr_end_pos = genotype_data[genotype_data["chr"] == each_chr].iloc[-1, -1]
+            
+            # calculate for each region
             for i in range(chr_end_pos//divide+1):
                 regional_imps = chr_SNP_imps[(chr_SNP_imps.start >= i*divide) & (chr_SNP_imps.start < (i+1)*divide)]
                 regional_geno = tmp_genotype_data[(tmp_genotype_data.chr == each_chr) & (tmp_genotype_data.start >= i*divide) & (tmp_genotype_data.start < (i+1)*divide)]
@@ -36,16 +45,22 @@ def make_regional_info(imp_data, divide, genotype_path, pop):
                 else:
                     regional_info.extend((regional_geno.loc[:, regional_geno.columns.str.contains(pop)].sum() / (regional_geno.shape[0]*2)).values)
                 regional_info_all.append(regional_info)
-
+    
+    # make dataframe of genetic effect of regions
     regional_info_all = pd.DataFrame(regional_info_all)
     regional_columns = ["chr", "start", "end", "GN_imps", "PN_imps", "GS_imps", "sum_zscore"]
     regional_columns.extend(regional_geno.columns[regional_geno.columns.str.contains(pop)].values)
     regional_info_all.columns = regional_columns
     return regional_info_all
 
+
+# extract top X or worst X genomic regions
 def get_top_regions(regional_info_all, target, kind, num):
+    
     blocks = []
     current_block = [0]
+    
+    # check genetic effect & compare previous blocks
     for i in range(1, regional_info_all.shape[0]):
         if (regional_info_all.loc[current_block[0], target] * regional_info_all.loc[i, target] <= 0) | \
            (regional_info_all.loc[current_block[-1], "chr"] != regional_info_all.loc[i, "chr"]) | \
@@ -72,6 +87,7 @@ def get_top_regions(regional_info_all, target, kind, num):
     top_regions = [[regional_info_all.loc[i[0], "chr"], regional_info_all.loc[i[0], "start"], regional_info_all.loc[i[-1], "end"]] for i in top_inds]
     return top_regions
 
+
 def calc_outlier(importances, distance):
     # Q3+3IQR & Q1-3IQR
     q1=importances.quantile(0.25)
@@ -81,11 +97,13 @@ def calc_outlier(importances, distance):
     bottom=q1-(distance*iqr)    
     return up, bottom
 
+
 def get_target_region(regional_info):
     target_regions = []
     for row in regional_info.itertuples():
         target_regions.append([row[1], row[2], row[3]])
     return target_regions
+
 
 def calc_genetic_effect(target_regions, imp_data, genotype, trait):
     if target_regions == "all":
@@ -99,6 +117,7 @@ def calc_genetic_effect(target_regions, imp_data, genotype, trait):
     target_imp_data = imp_data.loc[target_indices, :]
     target_genotype = genotype.loc[target_indices, :]
     return (target_genotype.T * target_imp_data[trait]).sum(axis=1)    
+
 
 def plot_regional_info(regional_info_all, trait, color, figsize=(15,2)):
     plt.rcParams['figure.dpi'] = 300
@@ -214,7 +233,7 @@ def plot_regional_info_with_genotype(regional_info_all, trait, color, target_plu
     plt.show()
     
 def target_effect_summary(imp_data, genotype_path, Hitome_per_path, pop, trait, target_plus, target_minus, total_minus):
-    genotype_data = pd.read_csv(genotype_path)
+    genotype_data = pd.read_csv("../data/PART7_Select_useful_RILs/Haplotype_high_imp_HBs_for_3traits.csv")
     pos_array = genotype_data.pos.str.split("_", expand=True).values
     pos = np.array([[int(each_pos[0]), int(each_pos[0])] if each_pos[1] == None else [int(each_pos[0]), int(each_pos[1])] for each_pos in pos_array])
     genotype_data["start"] = pos[:, 0]
@@ -233,13 +252,16 @@ def target_effect_summary(imp_data, genotype_path, Hitome_per_path, pop, trait, 
             pos_indices.extend(tmp_genotype_data.index.values)
             if len(tmp_genotype_data.index.values) > 0:
                 plus_regions+=1
-                plus_region_ratio.append(np.round(tmp_genotype_data.shape[0] / (tmp_imp_data[check_RIL[:3]] == "2").sum(), 3))
+                plus_region_ratio.append(np.round(tmp_genotype_data[check_RIL].sum() / ((tmp_imp_data[check_RIL[:3]] == "2").sum() * 2), 3))
             else:
                 plus_region_ratio.append(0)
         plus_num.append(plus_regions)
-        plus_ratios.append(f"{plus_region_ratio[0]}, {plus_region_ratio[1]}, {plus_region_ratio[2]}")
-        plus.append(imp_data.loc[pos_indices, :].sum()["{}_imps".format(trait)])
-        plus_all.append(imp_data.loc[pos_indices, :].sum()["sum_zscore"])
+        if len(target_plus) == 3:
+            plus_ratios.append(f"{plus_region_ratio[0]}, {plus_region_ratio[1]}, {plus_region_ratio[2]}")
+        else:
+            plus_ratios.append(f"{plus_region_ratio[0]}, {plus_region_ratio[1]}")
+        plus.append((imp_data.loc[pos_indices, "{}_imps".format(trait)] * genotype_data.loc[pos_indices, check_RIL]).sum())
+        plus_all.append((imp_data.loc[pos_indices, "sum_zscore"] * genotype_data.loc[pos_indices, check_RIL]).sum())
         pos_indices = []
         minus_region_ratio = []
         for i in target_minus:
@@ -248,10 +270,10 @@ def target_effect_summary(imp_data, genotype_path, Hitome_per_path, pop, trait, 
             tmp_imp_data = imp_data[(imp_data.chr == i[0]) & (imp_data.start >= i[1]) & (imp_data.end <= i[2])]
             pos_indices.extend(tmp_genotype_data.index.values)
             if len(tmp_genotype_data.index.values) > 0:
-                minus_region_ratio.append(np.round(tmp_genotype_data.shape[0] / (tmp_imp_data[check_RIL[:3]] == "2").sum(), 3))
+                minus_region_ratio.append(np.round(tmp_genotype_data[check_RIL].sum() / ((tmp_imp_data[check_RIL[:3]] == "2").sum() * 2), 3))
             else:
                 minus_region_ratio.append(0)
-        minus.append(imp_data.loc[pos_indices, :].sum()["{}_imps".format(trait)])
+        minus.append((imp_data.loc[pos_indices, "{}_imps".format(trait)] * genotype_data.loc[pos_indices, check_RIL]).sum())
         minus_ratios.append(f"{minus_region_ratio[0]}, {minus_region_ratio[1]}, {minus_region_ratio[2]}")
         minus_all_ratio = []
         for i in total_minus:
@@ -260,10 +282,10 @@ def target_effect_summary(imp_data, genotype_path, Hitome_per_path, pop, trait, 
             tmp_imp_data = imp_data[(imp_data.chr == i[0]) & (imp_data.start >= i[1]) & (imp_data.end <= i[2])]
             pos_indices.extend(tmp_genotype_data.index.values)
             if len(tmp_genotype_data.index.values) > 0:
-                minus_all_ratio.append(np.round(tmp_genotype_data.shape[0] / (tmp_imp_data[check_RIL[:3]] == "2").sum(), 3))
+                minus_all_ratio.append(np.round(tmp_genotype_data[check_RIL].sum() / ((tmp_imp_data[check_RIL[:3]] == "2").sum() * 2), 3))
             else:
                 minus_all_ratio.append(0)
-        minus_all.append(imp_data.loc[pos_indices, :].sum()["sum_zscore"])
+        minus_all.append((imp_data.loc[pos_indices, "sum_zscore"] * genotype_data.loc[pos_indices, check_RIL]).sum())
         minus_all_ratios.append(f"{minus_all_ratio[0]}, {minus_all_ratio[1]}, {minus_all_ratio[2]}")
     summary = pd.DataFrame({"RIL": genotype_data.columns[genotype_data.columns.str.contains(pop)],
                             "{}_plus".format(trait):plus,
@@ -278,7 +300,7 @@ def target_effect_summary(imp_data, genotype_path, Hitome_per_path, pop, trait, 
     Hitome_per = pd.read_csv(Hitome_per_path, index_col=0)
     summary["Hitome_per"] = Hitome_per.loc[summary.RIL, :].values
     return summary.sort_values(by="{}_merge".format(trait), ascending=False)
-    
+
     
 def visualize_line_genotype(genotype, chr_ends, hitome_color, other_color, dpi=80):
     
@@ -395,4 +417,5 @@ def visualize_F3_genotype(genotype, chr_ends, hitome_color, GN_target, PN_target
     ax.set_aspect('equal')
     if save:
         plt.savefig(f"{name}.png", format="png", dpi=300)
-    plt.show()
+#     plt.show()
+    plt.clf()

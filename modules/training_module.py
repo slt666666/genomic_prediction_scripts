@@ -153,9 +153,9 @@ def train_lightgbm(test_data, train_data, CV, params):
 
 def train_randomforest(test_data, train_data, CV, params):
     
-    X_train = train_data[0].fillna(1)
+    X_train = train_data[0].fillna(0)
     y_train = train_data[1]
-    X_test = test_data[0].fillna(1)
+    X_test = test_data[0].fillna(0)
     # train model
     clf = RandomForestRegressor(**params)
     clf.fit(X_train, y_train)
@@ -172,9 +172,9 @@ def train_randomforest(test_data, train_data, CV, params):
 def train_Lasso(test_data, train_data, params):    
     
     alpha = params["alpha"]        
-    X_train = train_data[0].fillna(1)
+    X_train = train_data[0].fillna(0)
     y_train = train_data[1]
-    X_test = test_data[0].fillna(1)
+    X_test = test_data[0].fillna(0)
     # train model
     clf = Lasso(alpha=alpha, max_iter=100000)
     clf.fit(X_train, y_train)
@@ -192,9 +192,9 @@ def train_Enet(test_data, train_data, params):
     
     alpha = params["alpha"]
     l1_ratio = params["l1_ratio"]      
-    X_train = train_data[0].fillna(1)
+    X_train = train_data[0].fillna(0)
     y_train = train_data[1]
-    X_test = test_data[0].fillna(1)
+    X_test = test_data[0].fillna(0)
     # train model
     clf = ElasticNet(alpha=alpha, l1_ratio=l1_ratio, max_iter=100000)
     clf.fit(X_train, y_train)

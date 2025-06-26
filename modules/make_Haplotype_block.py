@@ -155,3 +155,72 @@ def make_Haplotype_block(family, family_list, genotype_path_list, out_path):
     print(Haplotype.shape)
     
     Haplotype.to_csv(out_path, index=None)
+    
+    
+def make_Haplotype_block_other_pop(other_genotype, NAM_HB_genotype, family_list):
+    family_list = pd.read_csv(family_list)
+    family = family_list.family.unique()
+    other_genotype = pd.read_csv(other_genotype, sep="\t")
+    
+    # Get SNP type information
+    SNP_types = []
+    for chr_num in tqdm(range(1, 13)):
+        chromosome = "chr{}".format(str(chr_num).zfill(2))
+        other_genotype_chr = other_genotype[other_genotype.chr == chromosome]
+        # read original data
+        parental = pd.read_csv("../data/genotype_data/NAM_all_imputed_all_filtered_commpos_ALL_genotype_{}.txt.gz".format(chromosome), usecols=range(25), sep="\t")
+        parental = parental.loc[parental.pos.isin(other_genotype_chr.pos), :]
+        # extract paretal lines
+        parental = parental.iloc[:, 2:23]
+        # select family lines
+        parental = parental.loc[:, family]
+        SNP_type = ["".join(i) for i in parental.values.astype("str")]
+        SNP_types.extend(SNP_type)
+    other_genotype["SNP_type"] = SNP_types
+    
+    # Get genotype from each haplotype block
+    Haplotype_block = pd.read_csv(NAM_HB_genotype)
+    haplotype_blocks = []
+    for SNP_type in tqdm(other_genotype.SNP_type.unique()):
+        other_genotype_SNP_type = other_genotype[other_genotype["SNP_type"] == SNP_type]
+        HB_SNP_type = Haplotype_block[Haplotype_block["SNP_type"] == SNP_type]
+        for each_chr in other_genotype_SNP_type.chr.unique():
+            other_genotype_SNP_type_chr = other_genotype_SNP_type[other_genotype_SNP_type["chr"] == each_chr]
+            HB_SNP_type_chr = HB_SNP_type[HB_SNP_type["chr"] == each_chr]
+            for each_region in HB_SNP_type_chr.pos.values:
+                each_region = each_region.split("_")
+                if len(each_region) > 1:
+                    start = int(each_region[0])
+                    end = int(each_region[1])
+                    mode_value = other_genotype_SNP_type_chr[(other_genotype_SNP_type_chr["pos"] >= start) & (other_genotype_SNP_type_chr["pos"] <= end)].mode().values[0]
+                    mode_value = mode_value[2:-1]
+                    haplotype_block = [each_chr, "{}_{}".format(start, end), SNP_type]
+                    haplotype_block.extend(list(mode_value))
+                    haplotype_blocks.append(haplotype_block)
+                else:
+                    mode_value = other_genotype_SNP_type_chr[other_genotype_SNP_type_chr["pos"] == int(each_region[0])].values[0]
+                    mode_value = mode_value[2:-1]
+                    haplotype_block = [each_chr, "{}".format(each_region[0]), SNP_type]
+                    haplotype_block.extend(list(mode_value))
+                    haplotype_blocks.append(haplotype_block)
+    other_haplotype_blocks = pd.DataFrame(haplotype_blocks)
+    columns = ["chr", "pos", "SNP_type"]
+    columns.extend(list(Inov.columns[2:-1]))
+    other_haplotype_blocks.columns = columns
+    
+    # fill na value to No genotype data regions
+    final_other_haplotype_blocks = pd.DataFrame()
+    for i in tqdm(range(Haplotype_block.shape[0])):
+        tmp_chr = Haplotype_block.iloc[i, 0]
+        tmp_pos = Haplotype_block.iloc[i, 1]
+        tmp_SNP_type = Haplotype_block.iloc[i, 2]
+        tmp = other_haplotype_blocks[(other_haplotype_blocks["chr"] == tmp_chr) & (other_haplotype_blocks["pos"] == tmp_pos)]
+        if tmp.shape[0] > 0:
+            final_other_haplotype_blocks = pd.concat([final_other_haplotype_blocks, tmp])
+        else:
+            tmp = [tmp_chr, tmp_pos, tmp_SNP_type]
+            tmp.extend(np.repeat(np.nan, other_haplotype_blocks.shape[1]-3))
+            tmp = pd.DataFrame(tmp).T
+            tmp.columns = other_haplotype_blocks.columns
+            final_other_haplotype_blocks = pd.concat([final_other_haplotype_blocks, tmp])
+    return final_other_haplotype_blocks
