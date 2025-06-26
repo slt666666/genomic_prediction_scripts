@@ -6,6 +6,7 @@ from tqdm import tqdm
 
 
 def merge_same_genotype_position(SNP_set, position, SNPtype_RIL_ids):
+    
     # extract index in the same genotype SNPs in specific population
     SNPtype_genotype = SNP_set.loc[:, SNPtype_RIL_ids]
     indices = []
@@ -64,6 +65,7 @@ def parse_end_position(pos):
         return pos
 
 def extract_High_LD_block(genotype_data, haplotype_blocks, SNPtype_RIL_ids, threshold=0.9):
+    
     # merge SNP set that showed linkage disequilibrium > 0.9
     SNP_num = genotype_data.shape[0]
     SNP_type = genotype_data.iloc[0, 2]
@@ -72,6 +74,8 @@ def extract_High_LD_block(genotype_data, haplotype_blocks, SNPtype_RIL_ids, thre
         return haplotype_blocks
     else:
         for i in range(SNP_num):
+            
+            # merge SNPs based on LD
             gn = np.array(genotype_data.iloc[[0, i], :].loc[:, SNPtype_RIL_ids].dropna(how='any', axis=1))
             r = allel.rogers_huff_r(gn)
             if squareform(r ** 2)[0, 1] < threshold:
@@ -88,6 +92,8 @@ def extract_High_LD_block(genotype_data, haplotype_blocks, SNPtype_RIL_ids, thre
                 else:
                     return extract_High_LD_block(genotype_data.iloc[i:, :], haplotype_blocks, SNPtype_RIL_ids)
             else:
+                
+                # stop condition
                 if i == SNP_num - 1:
                     chrom = genotype_data.iloc[0, 0]
                     start = parse_start_position(genotype_data.iloc[0, 1])
@@ -113,33 +119,43 @@ def make_Haplotype_block(family, family_list, genotype_path_list, out_path):
     all_RIL_ids = family_list.loc[family_list.family.isin(family), "id"]
     
     for genotype_path in genotype_path_list:
+        
         # read original data
         genotype = pd.read_csv(genotype_path, sep="\t")
+        
         # extract position
         position = genotype.loc[:, ["chr", "pos"]]
+        
         # select parent lines & RIL lines
         parental = genotype.loc[:, family]
         genotype = genotype.loc[:, all_RIL_ids]
+        
         # extract Haplotype block
         chr_Haplotype = pd.DataFrame()
+        
         # classify SNP type (which parental lines have this SNP?)
         for SNP_type in tqdm(np.unique(parental.values, axis=0)):
             if sum(SNP_type) == 0:
                 pass
             else:
+                
                 # extract SNP set of each SNP type
                 SNP_set_indices = [np.array_equal(each_line, SNP_type) for each_line in parental.values]
                 SNP_set_position = position.loc[SNP_set_indices, :]
                 SNP_set = genotype.loc[SNP_set_indices, :]
+                
                 # identify RIL ids dereived from parents of each SNP type
                 SNPtype_parents = parental.columns[SNP_type == 2].values
                 SNPtype_RIL_ids = family_list.loc[family_list.family.isin(SNPtype_parents), "id"].values
+                
                 # merge SNP set that showed same genotypes in RIL population
                 SNP_set = merge_same_genotype_position(SNP_set, SNP_set_position, SNPtype_RIL_ids)
+                
                 # add SNP type column
                 SNP_type = pd.Series(np.repeat("".join([str(n) for n in SNP_type]), SNP_set.shape[0]), name="SNP_type")
                 SNP_set = SNP_set.reset_index(drop=True)
                 SNP_set = pd.concat([SNP_set.iloc[:, :2], SNP_type, SNP_set.iloc[:, 2:]], axis=1)
+                
                 # merge SNP set that showed LD > 0.9
                 if SNP_set.shape[0] > 1:
                     Haplotype_blocks = make_Haplotype_block_df(SNP_set, SNPtype_RIL_ids)
@@ -167,26 +183,36 @@ def make_Haplotype_block_other_pop(other_genotype, NAM_HB_genotype, family_list)
     for chr_num in tqdm(range(1, 13)):
         chromosome = "chr{}".format(str(chr_num).zfill(2))
         other_genotype_chr = other_genotype[other_genotype.chr == chromosome]
+        
         # read original data
         parental = pd.read_csv("../data/genotype_data/NAM_all_imputed_all_filtered_commpos_ALL_genotype_{}.txt.gz".format(chromosome), usecols=range(25), sep="\t")
         parental = parental.loc[parental.pos.isin(other_genotype_chr.pos), :]
+        
         # extract paretal lines
         parental = parental.iloc[:, 2:23]
+        
         # select family lines
         parental = parental.loc[:, family]
         SNP_type = ["".join(i) for i in parental.values.astype("str")]
         SNP_types.extend(SNP_type)
+    
     other_genotype["SNP_type"] = SNP_types
     
     # Get genotype from each haplotype block
     Haplotype_block = pd.read_csv(NAM_HB_genotype)
     haplotype_blocks = []
     for SNP_type in tqdm(other_genotype.SNP_type.unique()):
+        
+        # merge SNP genotype baed on NAM HB information
         other_genotype_SNP_type = other_genotype[other_genotype["SNP_type"] == SNP_type]
         HB_SNP_type = Haplotype_block[Haplotype_block["SNP_type"] == SNP_type]
+        
+        # each chromosome
         for each_chr in other_genotype_SNP_type.chr.unique():
             other_genotype_SNP_type_chr = other_genotype_SNP_type[other_genotype_SNP_type["chr"] == each_chr]
             HB_SNP_type_chr = HB_SNP_type[HB_SNP_type["chr"] == each_chr]
+            
+            # each HB
             for each_region in HB_SNP_type_chr.pos.values:
                 each_region = each_region.split("_")
                 if len(each_region) > 1:
@@ -203,6 +229,8 @@ def make_Haplotype_block_other_pop(other_genotype, NAM_HB_genotype, family_list)
                     haplotype_block = [each_chr, "{}".format(each_region[0]), SNP_type]
                     haplotype_block.extend(list(mode_value))
                     haplotype_blocks.append(haplotype_block)
+    
+    # make dataframe of new HBs of other pop
     other_haplotype_blocks = pd.DataFrame(haplotype_blocks)
     columns = ["chr", "pos", "SNP_type"]
     columns.extend(list(Inov.columns[2:-1]))
@@ -223,4 +251,5 @@ def make_Haplotype_block_other_pop(other_genotype, NAM_HB_genotype, family_list)
             tmp = pd.DataFrame(tmp).T
             tmp.columns = other_haplotype_blocks.columns
             final_other_haplotype_blocks = pd.concat([final_other_haplotype_blocks, tmp])
+            
     return final_other_haplotype_blocks
